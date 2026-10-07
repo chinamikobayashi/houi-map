@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>方位線シミュレーター</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+html,body{height:100%;margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif}#map{height:100%}
+.panel{position:absolute;z-index:1000;top:12px;left:12px;background:#fff;padding:12px;border-radius:10px;box-shadow:0 2px 12px #0003;width:min(310px,calc(100vw - 48px));font-size:14px}
+.row{display:flex;gap:7px;margin-top:8px;align-items:center}.row label{width:68px}.row input{width:80px;padding:5px}
+button{padding:7px 10px;border:1px solid #aaa;border-radius:7px;background:#fff;cursor:pointer}button.primary{background:#222;color:#fff;border-color:#222}
+.note{font-size:12px;color:#555;line-height:1.45;margin-top:8px}.status{margin-top:7px;font-size:12px;font-weight:600}
+</style></head>
+<body><div id="map"></div>
+<div class="panel"><b>方位線シミュレーター</b>
+<div class="note">① 地図をクリックして起点を選択　② 角度を入力　③ 2線を引く。描いた線は残したまま、別の起点で繰り返せます。</div>
+<div class="row"><label>角度 1</label><input id="a1" type="number" step="0.1" value="22.5">°</div>
+<div class="row"><label>角度 2</label><input id="a2" type="number" step="0.1" value="67.5">°</div>
+<div class="row"><label>長さ</label><input id="dist" type="number" min="1" value="1000">km</div>
+<div class="row"><button class="primary" id="draw">2線を引く</button><button id="undo">直前の2線を削除</button></div>
+<div class="row"><button id="kml">KML保存</button></div>
+<div id="status" class="status">起点を地図上で選んでください</div>
+<div class="note">角度は真北=0°、時計回り。線は大圏航路に沿って計算します。</div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map=L.map('map').setView([35.27875,139.57396],9);
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+let pending=null,pendingMarker=null,history=[];
+const status=document.getElementById('status');
+map.on('click',e=>{pending=e.latlng;if(pendingMarker)map.removeLayer(pendingMarker);pendingMarker=L.circleMarker(pending,{radius:6,color:'#111',weight:2,fillColor:'#fff',fillOpacity:1}).addTo(map);status.textContent='起点: '+pending.lat.toFixed(6)+', '+pending.lng.toFixed(6);});
+function dest(lat,lon,bearing,km){const R=6371.0088,d=km/R,b=bearing*Math.PI/180,p1=lat*Math.PI/180,l1=lon*Math.PI/180;const p2=Math.asin(Math.sin(p1)*Math.cos(d)+Math.cos(p1)*Math.sin(d)*Math.cos(b));const l2=l1+Math.atan2(Math.sin(b)*Math.sin(d)*Math.cos(p1),Math.cos(d)-Math.sin(p1)*Math.sin(p2));return [p2*180/Math.PI,((l2*180/Math.PI+540)%360)-180];}
+function path(lat,lon,bearing,km){let pts=[];const n=Math.max(2,Math.ceil(km/10));for(let i=0;i<=n;i++)pts.push(dest(lat,lon,bearing,km*i/n));return pts;}
+document.getElementById('draw').onclick=()=>{if(!pending){alert('先に地図上で起点を選んでください');return}const a1=+document.getElementById('a1').value,a2=+document.getElementById('a2').value,d=+document.getElementById('dist').value;if(!isFinite(a1)||!isFinite(a2)||!isFinite(d)||d<=0){alert('角度と長さを確認してください');return}const origin=[pending.lat,pending.lng];const marker=L.circleMarker(origin,{radius:5,color:'#111',weight:2,fillColor:'#fff',fillOpacity:1}).addTo(map);const l1=L.polyline(path(origin[0],origin[1],a1,d),{color:'#d22',weight:2}).addTo(map);const l2=L.polyline(path(origin[0],origin[1],a2,d),{color:'#d22',weight:2}).addTo(map);history.push({origin,a1,a2,d,marker,l1,l2});if(pendingMarker){map.removeLayer(pendingMarker);pendingMarker=null}pending=null;status.textContent='描画済み: '+history.length+'組';};
+document.getElementById('undo').onclick=()=>{const x=history.pop();if(!x)return;map.removeLayer(x.marker);map.removeLayer(x.l1);map.removeLayer(x.l2);status.textContent='描画済み: '+history.length+'組';};
+document.getElementById('kml').onclick=()=>{if(!history.length){alert('保存する線がありません');return}let s='<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document>';history.forEach((x,i)=>{[x.a1,x.a2].forEach(a=>{const coords=path(x.origin[0],x.origin[1],a,x.d).map(p=>p[1]+','+p[0]+',0').join(' ');s+='<Placemark><name>'+(i+1)+'組 '+a+'°</name><LineString><tessellate>1</tessellate><coordinates>'+coords+'</coordinates></LineString></Placemark>';});});s+='</Document></kml>';const blob=new Blob([s],{type:'application/vnd.google-earth.kml+xml'}),u=URL.createObjectURL(blob),a=document.createElement('a');a.href=u;a.download='houi-lines.kml';a.click();URL.revokeObjectURL(u);};
+</script></body></html>
